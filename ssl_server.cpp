@@ -114,6 +114,7 @@ int main(int argc, char **argv)
 }
 void *send_data(void *arg)
 {
+	struct user *p;
 	SSL *ssl = (SSL *)arg;
 	
 	bzero(data,sizeof(data));
@@ -121,7 +122,13 @@ void *send_data(void *arg)
  	{
 		if(strncmp("quit",data,4) == 0)
 			break;
-  		SSL_write(ssl,data,strlen(data));
+		p = root->next;
+		while(p != NULL)
+                {
+                       if(p->ssl != NULL)
+                            SSL_write(p->ssl,data,strlen(data));
+                       p = p->next;
+                }
  	}
 	SSL_shutdown(ssl);
        SSL_free(ssl);
@@ -134,12 +141,11 @@ void *recv_data(void *arg)
 	char toall[MAXBUF];
 	char *all = "TO ALL:";
 	struct user *p;
-	bzero(recvdata,sizeof(recvdata));
 	int ret = 0;
 	while(1)
 	{
 		p = root->next;
-		bzero(toall,sizeof(toall));
+		bzero(recvdata,sizeof(recvdata));
 		recbytes = SSL_read(ssl,recvdata,MAXBUF);	
 		if(-1 == recbytes)
  		{
@@ -150,12 +156,14 @@ void *recv_data(void *arg)
 			break;
 		}
 		else{
+			memset(toall,'\0',sizeof(toall));
  			strcat(toall,all);
 			strcat(toall,recvdata);
 			printf("%s\n",toall);	
 			while(p != NULL)
 			{
-				SSL_write(ssl,toall,strlen(toall));
+				if(p->ssl != NULL)
+					SSL_write(p->ssl,toall,strlen(toall));
 				p = p->next;
 			}
 		}
@@ -167,28 +175,29 @@ void *recv_data(void *arg)
 }
 void beforechat(SSL *ssl)
 {
-	int ret = 1;
+	int ret;
 	int n;
 	struct user *node;
 	inituser(&root);  //初始化
 	bzero(name,sizeof(name));	
 	bzero(passwd,sizeof(passwd));
-	SSL_write(ssl,buf1,strlen(buf1));
-	while((n = SSL_read(ssl,name,20) <= 0))
+	SSL_write(ssl,buf1,strlen(buf1));	
+	SSL_read(ssl,name,20);
+	while((ret = search(root,name) == 1))
 	{
-		if(n > 0) break;
-		SSL_write(ssl,buf1,strlen(buf1));
-	}
-	SSL_write(ssl,buf5,strlen(buf5));
-	while((n = SSL_read(ssl,passwd,20) <= 0))
+		SSL_write(ssl,buf2,strlen(buf2));
+		SSL_read(ssl,name,20);
+	}	
+	if(ret == 0)  //不再用户列表中
 	{
-		if(n > 0) break;
-                SSL_write(ssl,buf5,strlen(buf5));
-	}
-	printf("name:%s\n",name);
-	printf("passwd:%s\n",passwd);
-	ret = search(root,name);
-	if(!ret){
+		SSL_write(ssl,buf5,strlen(buf5));
+		while((n = SSL_read(ssl,passwd,20) <= 0))
+		{
+			if(n > 0) break;
+                	SSL_write(ssl,buf5,strlen(buf5));
+		}
+		//printf("name:%s\n",name);
+		//printf("passwd:%s\n",passwd);
 		node = (struct user*)malloc(sizeof(struct user));
 		memset(node,0,sizeof(user));
 		node->next = NULL;
@@ -200,18 +209,22 @@ void beforechat(SSL *ssl)
 		else SSL_write(ssl,buf3,strlen(buf3)); 
 		free(node);
 		//break;
-	}else{
-		SSL_write(ssl,buf2,strlen(buf2));
 	}
 }
 
 int inituser(user **root)
 {
+	struct user *node;
+	node = (struct user*)malloc(sizeof(struct user));
+	node->ssl = NULL;
+	strcpy(node->name,"hello");
+	bzero(node->passwd,sizeof(node->passwd));
+	node->next = NULL;	
   	*root = (struct user*)malloc(sizeof(struct user));
 	if(*root != NULL)
 	{
 		memset(*root,0,sizeof(struct user));
-		(*root)->next = NULL;
+		(*root)->next = node;
 		return 1;
 	}
 	return 0;
@@ -224,6 +237,8 @@ int insert(user **root,user *node)
 	struct user *temp;
 	head = *root;
 	temp = head;
+	if(search(*root,node->name))
+		return 0;
 	printf("开始插入\n");
 	while(head->next != NULL)
 	{	
@@ -237,7 +252,7 @@ int insert(user **root,user *node)
 int search(user *root,char *name)
 {
 	struct user *p = root->next;
-	if(mount == 0) return 0;
+	//if(mount == 0) return 0;
 	while(p != NULL)
 	{
 

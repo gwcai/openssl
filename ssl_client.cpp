@@ -110,12 +110,12 @@ int main(int argc, char **argv)
 }
 void *sendmessage(void *arg)
 {
- SSL *ssl = (SSL*)arg;
- bzero(data,sizeof(data));
- while((scanf("%s",data)) != EOF)
- {
-  SSL_write(ssl,data,strlen(data));
- }
+ 	SSL *ssl = (SSL*)arg;
+ 	while((scanf("%s",data)) != EOF)
+ 	{
+  		SSL_write(ssl,data,strlen(data));
+		bzero(data,sizeof(data));
+ 	}
 	pthread_exit(NULL);
 }
  
