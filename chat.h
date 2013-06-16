@@ -11,8 +11,9 @@
 #include <openssl/err.h>
 #include<pthread.h>
 #include <sys/wait.h>
-
-
+#include<signal.h>
 #define MAXBUF 1024
 #define LISNUM 10
 #define MAXTHREAD 20
+
+sigset_t set;

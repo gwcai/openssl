@@ -1,8 +1,11 @@
 #include"chat.h"
 
-void *sendmessage(void *arg);
+void *receivemessage(void *arg);
+void beforechat(SSL *ssl);
+
 pthread_t thread;
 char data[MAXBUF+1];
+char buffer[MAXBUF + 1];
 void ShowCerts(SSL * ssl)
 {
     X509 *cert;
@@ -26,9 +29,10 @@ int main(int argc, char **argv)
 {
     int sockfd, len;
     struct sockaddr_in dest;
-    char buffer[MAXBUF + 1];
     int fd;
+    void *buf;
     int result;
+    void *status;
     SSL_CTX *ctx;
     SSL *ssl;
     int recbytes;
@@ -84,39 +88,158 @@ int main(int argc, char **argv)
         ShowCerts(ssl);
     }
 	printf("Chat now!!\n");
-	pthread_create(&thread,NULL,sendmessage,(void *)ssl);
-	while(1)
-	{
-		
-	bzero(buffer,sizeof(buffer));
-	recbytes = SSL_read(ssl,buffer,MAXBUF);
- 	if(-1 == recbytes)
- 	{
-    		printf("read data fail !\r\n");
-		return -1;
- 	}else if(0 == recbytes){
-		printf("the server has terminal the chat!\n");
-		return 0;
-	}
-	else
- 		printf("REC:%s\n",buffer);
-   	}
-  finish:
+	/*initialize signal*/
+	sigemptyset(&set);
+	sigaddset(&set,SIGUSR2);
+	sigaddset(&set,SIGUSR1);
+	sigprocmask(SIG_SETMASK,&set,NULL);
+	beforechat(ssl);
+	pthread_create(&thread,NULL,receivemessage,(void *)ssl);
+	pthread_kill(thread,SIGUSR1); //开始信号
+	 while(fgets(data,sizeof(data),stdin))
+        {
+		data[strlen(data)-1] = '\0';
+		if(strcmp("quit",data) == 0)
+		{
+			pthread_kill(thread,SIGUSR2);//结束线程信号
+			break; 
+		}      
+                SSL_write(ssl,data,strlen(data));
+                bzero(data,sizeof(data));
+        }
+    close(sockfd);
     SSL_shutdown(ssl);
     SSL_free(ssl);
-    close(sockfd);
     SSL_CTX_free(ctx);
     return 0;
 }
-void *sendmessage(void *arg)
+void help_infor()
+{
+	printf("*********欢迎来到openssl聊天室**********\n");
+	printf("********注册成功后默认为群聊模式********\n");
+	printf("****私聊请用如下格式:to [user name]:****\n");
+	printf("*********查看在线用户列表:!show*********\n");
+}
+int login(SSL *ssl)
+{
+	char result[50];
+	bzero(result,sizeof(result));
+	SSL_write(ssl,"LOGIN",5);
+	SSL_read(ssl,result,50);
+	printf("%s\n",result);
+	bzero(result,sizeof(result));
+	/*输入用户名*/
+	scanf("%s",result);
+	SSL_write(ssl,result,strlen(result));
+	bzero(result,sizeof(result));
+	SSL_read(ssl,result,100);
+	printf("%s\n",result);
+	if(strcmp("请输入密码",result) == 0)
+	{
+		while(1)
+		{
+			bzero(result,sizeof(result));
+			/*输入密码*/
+			scanf("%s",result);
+			SSL_write(ssl,result,strlen(result));
+			bzero(result,sizeof(result));
+			SSL_read(ssl,result,50);
+			printf("%s\n",result);
+			if(strcmp("登录成功",result) == 0)
+				break;
+ 		}
+		return 1;
+	}
+	return 0;
+}
+int user_register(SSL *ssl)
+{
+	char result[50];
+	bzero(result,sizeof(result));
+        SSL_write(ssl,"REGISTER",8);
+        SSL_read(ssl,result,50);
+        printf("%s\n",result);
+	while(1)
+	{
+        	bzero(result,sizeof(result));
+		scanf("%s",result);
+		SSL_write(ssl,result,strlen(result));
+		bzero(result,sizeof(result));
+		SSL_read(ssl,result,50);
+		printf("%s\n",result);
+		if(strcmp("OK",result) == 0)
+			break;
+	}
+	bzero(result,sizeof(result));
+        SSL_read(ssl,result,50);
+        printf("%s\n",result);
+        if(strcmp("请输入密码",result) == 0)
+        {
+               while(1) {
+			bzero(result,sizeof(result));
+			scanf("%s",result);
+                        SSL_write(ssl,result,strlen(result));
+			bzero(result,sizeof(result));
+                        SSL_read(ssl,result,50);
+                        printf("%s\n",result);
+                        if(strcmp("OK",result) == 0)
+                                break;
+                }
+		bzero(result,sizeof(result));
+		SSL_read(ssl,result,50);
+		printf("%s\n",result);
+		if(strcmp("注册成功",result) == 0)
+                	return 1;
+        }
+        return 0;	
+}
+void beforechat(SSL *ssl)
+{
+	char choice;
+	char temp;	
+	help_infor();
+	while(1)
+	{
+		printf("请选择要进行的操作:\n");
+        	printf("a、登录服务器\tb、注册\n");
+		scanf("\n%c",&choice);
+		//printf("%c",choice);
+		if(choice == 'a')
+		{
+			if(login(ssl) == 1)
+				break;
+		}else if(choice == 'b'){
+			if(user_register(ssl) == 1)
+					break;
+		}else
+			printf("重新选择\n");
+	}
+}
+
+void *receivemessage(void *arg)
 {
  	SSL *ssl = (SSL*)arg;
- 	while((scanf("%s",data)) != EOF)
- 	{
-  		SSL_write(ssl,data,strlen(data));
-		bzero(data,sizeof(data));
- 	}
-	pthread_exit(NULL);
+	int signum;
+	sigwait(&set,&signum);
+	int recbytes;
+	if(signum == SIGUSR1)
+	{	
+		while(1)
+		{
+			bzero(buffer,sizeof(buffer));
+       			recbytes = SSL_read(ssl,buffer,MAXBUF);
+       			if(-1 == recbytes)
+       			{
+               			printf("read data fail !\r\n");
+               			break;
+       			}else if(0 == recbytes){
+                		printf("the server has terminal the chat!\n");
+               			break;
+       			}	
+       			else
+               			printf("%s\n",buffer);
+       		}
+	}
+	if(SIGUSR2 == signum)
+		pthread_exit(NULL);	
 }
- 
-
